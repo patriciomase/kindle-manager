@@ -121,6 +121,9 @@ and runs the inbox as a systemd user service. Laptops use the same commands
 over the Docker path. `tests/test_kindlemgr.py` runs anywhere against a fake
 tree via `KINDLE_DIR` — no hardware.
 
+Confirmed against the real Paperwhite 4 on 2026-09-15: the whole path works on
+the device, not just against a fake tree.
+
 ## Owner notes
 
 - User is a Spanish speaker (Argentina); reading tastes lean sci-fi (often in Spanish), chess,

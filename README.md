@@ -84,7 +84,7 @@ Set `KINDLE_DIR` to a directory that looks like the device and every command
 works against it:
 
 ```bash
-python3 tests/test_kindlemgr.py      # 11 tests, no hardware
+python3 tests/test_kindlemgr.py      # 19 tests, no hardware
 KINDLE_DIR=/path/to/fake kindle-ls
 ```
 
