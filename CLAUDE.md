@@ -95,10 +95,18 @@ docker/               Dockerfile.fetch (trafilatura) and Dockerfile.calibre
 ```
 
 **The queue is the core idea.** Adding never requires the device: anything is
-converted immediately and parked, then a watcher polls every 5 s and flushes it
-the moment the Kindle mounts. `kindle-inboxd` serves that as a LAN page on port
-8137 with a bookmarklet, so an article found on the phone lands on the Kindle
-by itself.
+converted immediately and parked in the spool, and delivered when the Kindle is
+next connected -- the **Deliver** button on the inbox page, or `kindle-flush`.
+`kindle-inboxd` serves that as a LAN page on port 8137 with a bookmarklet, so
+an article found on the phone is one click from being queued.
+
+Delivery is **manual by default**: this Kindle gets plugged in about once a
+month, so a watcher polling for it is thousands of wake-ups for nothing.
+`KINDLE_AUTOFLUSH=1` opts into automatic delivery (every 30 s).
+
+Mount detection deliberately avoids `lsblk`: it reads the `/dev/disk/by-label`
+symlink and `/proc/self/mountinfo` directly, so a status check is two file
+reads rather than a subprocess. `lsblk` remains as a fallback.
 
 - [x] `kindle-add <file|gutenberg-id|url|article-url>`
 - [x] `kindle-ls` — handles `.azw`/`.kfx`/`.sdr`, skips dictionaries and KU receipts
@@ -106,7 +114,7 @@ by itself.
 - [x] `kindle-clippings` — per-book markdown export
 - [x] `kindle-eject` — sync + `udisksctl unmount`
 - [x] Friendly "no Kindle connected / it may be charge-only" message
-- [x] Web inbox + bookmarklet + auto-delivery on connect
+- [x] Web inbox + bookmarklet + one-button delivery (auto-delivery opt-in)
 
 Hub box is **the LAN desktop**: it has Calibre natively, it is always on,
 and it runs the inbox as a systemd user service. `tests/test_kindlemgr.py` runs

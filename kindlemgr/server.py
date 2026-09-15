@@ -1,9 +1,14 @@
 """The paste-a-URL inbox.
 
 A tiny LAN service: paste a link (or hit the bookmarklet) and the article is
-fetched, converted and queued. A background thread watches for the Kindle and
-flushes the queue onto it the moment it appears, so the device never has to be
-plugged in at the time you find something worth reading.
+fetched, converted and queued. The device never has to be plugged in at the
+time you find something worth reading -- you deliver the queue when you next
+connect it, with the button on the page or `kindle-flush`.
+
+Delivery is manual by design: polling for a device you connect once a month
+burns thousands of wake-ups for nothing. Set KINDLE_AUTOFLUSH=1 if you would
+rather it deliver by itself; it then checks every AUTOFLUSH_SECONDS, which is
+cheap now that mount detection is two file reads (see device.py).
 
 Standard library only -- the heavy dependencies stay inside Docker.
 """
@@ -24,7 +29,8 @@ from . import queue as spool
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(HERE, "web")
 
-POLL_SECONDS = 5
+AUTOFLUSH = os.environ.get("KINDLE_AUTOFLUSH", "") not in ("", "0", "no", "false")
+AUTOFLUSH_SECONDS = int(os.environ.get("KINDLE_AUTOFLUSH_SECONDS", 30))
 MAX_JOBS = 30
 
 _jobs = []                     # newest last; each: {id, url, title, state, detail, at}
@@ -64,7 +70,8 @@ def _worker():
             entry = spool.add(path, title, author, source=job["url"])
             _update(job, state="queued", title=title,
                     detail=f"queued · {library.human_size(entry['size'])}")
-            _flush_if_connected()
+            if AUTOFLUSH:
+                _flush_if_connected()
         except Exception as exc:                       # noqa: BLE001 - surfaced in the UI
             _update(job, state="error", detail=str(exc)[:300])
             spool.log(f"ERROR   {job['url']}: {exc}")
@@ -82,22 +89,21 @@ def _flush_if_connected():
 
 
 def _watcher():
-    """Deliver the queue as soon as the Kindle shows up."""
+    """Optional auto-delivery. Off unless KINDLE_AUTOFLUSH is set."""
     was_connected = False
     while True:
         try:
             connected = device.is_connected()
-            if connected and not was_connected:
-                spool.log("kindle connected")
-                _flush_if_connected()
-            elif connected:
+            if connected:
+                if not was_connected:
+                    spool.log("kindle connected")
                 _flush_if_connected()
             elif was_connected:
                 spool.log("kindle disconnected")
             was_connected = connected
         except Exception as exc:                       # noqa: BLE001 - never kill the thread
             spool.log(f"watcher error: {exc}")
-        time.sleep(POLL_SECONDS)
+        time.sleep(AUTOFLUSH_SECONDS)
 
 
 def _state():
@@ -106,6 +112,7 @@ def _state():
     return {
         "kindle": device.find_mount(),
         "connected": device.is_connected(),
+        "autoflush": AUTOFLUSH,
         "queue": [
             {"id": e["id"], "title": e["title"], "author": e.get("author", ""),
              "size": e["size"], "human_size": library.human_size(e["size"]),
@@ -196,8 +203,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"removed": spool.remove(item_id)})
 
         if parsed.path == "/api/flush":
-            delivered = _flush_if_connected()
-            return self._json({"delivered": [e["title"] for e in delivered]})
+            docs = device.documents_dir()
+            if not docs:
+                return self._json({"error": "no Kindle connected"}, 409)
+            delivered, failed = spool.flush(docs)
+            return self._json({
+                "delivered": [e["title"] for e in delivered],
+                "failed": [e["title"] for e, _err in failed],
+            })
 
         return self._json({"error": "not found"}, 404)
 
@@ -212,11 +225,13 @@ BOOKMARKLET_OK = """<!doctype html><meta charset="utf-8">
 
 def serve(host="0.0.0.0", port=8137):
     threading.Thread(target=_worker, daemon=True).start()
-    threading.Thread(target=_watcher, daemon=True).start()
+    if AUTOFLUSH:
+        threading.Thread(target=_watcher, daemon=True).start()
 
     httpd = ThreadingHTTPServer((host, port), Handler)
     spool.log(f"inbox listening on {host}:{port}")
-    print(f"kindle inbox → http://{host}:{port}  (Ctrl-C to stop)")
+    mode = "auto-delivering" if AUTOFLUSH else "deliver with the button or kindle-flush"
+    print(f"kindle inbox → http://{host}:{port}  ({mode}; Ctrl-C to stop)", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

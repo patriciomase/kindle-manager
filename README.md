@@ -24,8 +24,8 @@ just files under `documents/`. Two rules drive the whole design:
   — only via Send-to-Kindle. PDF is fixed-layout and unreadable on a 6" screen.
   So everything reflowable gets converted to AZW3 first.
 - **The device is usually unplugged.** Anything you add is converted immediately
-  and parked in a queue; a watcher delivers it the moment the Kindle appears.
-  That is what makes "paste a link now, read it tonight" work.
+  and parked in a queue, and you deliver the queue when you next connect the
+  Kindle. That is what makes "paste a link now, read it tonight" work.
 
 ## Commands
 
@@ -50,9 +50,16 @@ Every command is also a subcommand of `kindle` (`kindle add`, `kindle ls`, …).
 - drag the **bookmarklet** it offers into your bookmarks bar and click it on any
   article — including from a phone browser on the same network.
 
-The article is extracted, converted to AZW3 and queued. A background watcher
-polls for the Kindle every 5 seconds and flushes the queue as soon as it is
-plugged in and unlocked.
+The article is extracted, converted to AZW3 and queued. When you next plug the
+Kindle in, the **Deliver** button on the page sends everything waiting — or run
+`kindle-flush` from a terminal.
+
+Delivery is manual on purpose: polling for a device that gets connected once a
+month is thousands of wake-ups for nothing. If you would rather it happen by
+itself, set `KINDLE_AUTOFLUSH=1` and the service checks every 30 seconds
+(`KINDLE_AUTOFLUSH_SECONDS` to change that). Detecting the Kindle reads
+`/dev/disk/by-label` and `/proc/self/mountinfo` — two file reads, no
+subprocess — so the check is cheap either way.
 
 ## Install
 

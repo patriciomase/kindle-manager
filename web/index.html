@@ -63,6 +63,11 @@
   .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--muted); flex: none; }
   .dot.on { background: var(--ok); }
   .status { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+  .status button { margin-left: auto; padding: .35rem .8rem; font-size: .85rem; }
+  .status button:disabled {
+    background: none; color: var(--muted); border-color: var(--line);
+    cursor: default; font-weight: 400;
+  }
   .status .hint { color: var(--muted); font-size: .8rem; }
   .job .meta.error { color: var(--err); }
   .job .meta.working { color: var(--accent); }
@@ -88,6 +93,7 @@
     <div class="status">
       <span class="dot" id="dot"></span>
       <span id="kindle">checking…</span>
+      <button id="deliver" disabled>Deliver</button>
     </div>
     <div class="hint" id="hint"></div>
   </section>
@@ -174,6 +180,22 @@ function fill(node, items, emptyText) {
   items.forEach((n) => node.append(n));
 }
 
+$("deliver").addEventListener("click", async () => {
+  const btn = $("deliver");
+  btn.disabled = true;
+  btn.textContent = "Delivering…";
+  try {
+    const res = await (await fetch("/api/flush", { method: "POST" })).json();
+    $("hint").textContent = res.error
+      ? res.error
+      : `delivered ${res.delivered.length} — unplug to let the Kindle index them`;
+  } catch {
+    $("hint").textContent = "delivery failed";
+  }
+  btn.textContent = "Deliver";
+  refresh();
+});
+
 async function refresh() {
   let s;
   try {
@@ -184,10 +206,22 @@ async function refresh() {
   }
 
   $("dot").className = "dot" + (s.connected ? " on" : "");
-  $("kindle").textContent = s.connected ? "Kindle connected — " + s.kindle : "Kindle not connected";
-  $("hint").textContent = s.connected
-    ? "queue flushes automatically; unplug to let it index"
-    : "plug it in and unlock the screen to auto-deliver";
+  $("kindle").textContent = s.connected ? "Kindle connected" : "Kindle not connected";
+
+  const btn = $("deliver");
+  const ready = s.connected && s.queue.length > 0;
+  btn.disabled = !ready;
+  btn.textContent = ready ? `Deliver ${s.queue.length}` : "Deliver";
+
+  if (!s.connected) {
+    $("hint").textContent = "plug it in and unlock the screen, then hit Deliver";
+  } else if (!s.queue.length) {
+    $("hint").textContent = s.kindle + " — nothing waiting";
+  } else if (s.autoflush) {
+    $("hint").textContent = s.kindle + " — delivering automatically";
+  } else {
+    $("hint").textContent = s.kindle;
+  }
 
   $("qcount").textContent = s.queue.length ? s.queue.length : "";
   fill($("queue"), s.queue.map((b) =>

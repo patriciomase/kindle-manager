@@ -9,7 +9,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from kindlemgr import clippings, convert, library  # noqa: E402
+from kindlemgr import clippings, convert, device, library  # noqa: E402
 
 CLIPPINGS_SAMPLE = """﻿Chess Fundamentals (José Raúl Capablanca)
 - Your Highlight on page 12 | Location 173-174 | Added on Monday, 21 July 2026 22:04:11
@@ -188,6 +188,42 @@ class EpubMetadataTest(unittest.TestCase):
         os.close(fd)
         self.addCleanup(os.remove, path)
         self.assertEqual(convert.epub_metadata(path), ("", ""))
+
+
+MOUNTINFO_SAMPLE = """\
+25 30 0:22 / /proc rw,nosuid,relatime shared:5 - proc proc rw
+36 30 8:33 / /media/user/Kindle rw,nosuid,nodev,relatime shared:1 - vfat /dev/sdc1 rw,uid=1000
+41 30 8:49 / /media/user/My\\040USB\\040Stick rw,relatime shared:2 - vfat /dev/sdd1 rw
+44 30 259:2 / / rw,relatime shared:3 - ext4 /dev/nvme0n1p2 rw
+"""
+
+
+class MountinfoTest(unittest.TestCase):
+    def test_parses_device_mountpoint_and_source(self):
+        entries = list(device.parse_mountinfo(MOUNTINFO_SAMPLE))
+        self.assertIn(("8:33", "/media/user/Kindle", "/dev/sdc1"), entries)
+        self.assertIn(("259:2", "/", "/dev/nvme0n1p2"), entries)
+
+    def test_unescapes_octal_in_mountpoints(self):
+        points = [mp for _mm, mp, _src in device.parse_mountinfo(MOUNTINFO_SAMPLE)]
+        self.assertIn("/media/user/My USB Stick", points)
+
+    def test_ignores_lines_without_a_separator(self):
+        self.assertEqual(list(device.parse_mountinfo("garbage line\n")), [])
+
+    def test_kindle_dir_override_wins(self):
+        tmp = tempfile.mkdtemp(prefix="override-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.environ["KINDLE_DIR"] = tmp
+        self.addCleanup(os.environ.pop, "KINDLE_DIR", None)
+        self.assertEqual(device.find_mount(), tmp)
+        self.assertIsNone(device.find_device())
+
+    def test_missing_override_directory_reads_as_disconnected(self):
+        os.environ["KINDLE_DIR"] = "/nonexistent/kindle"
+        self.addCleanup(os.environ.pop, "KINDLE_DIR", None)
+        self.assertIsNone(device.find_mount())
+        self.assertFalse(device.is_connected())
 
 
 if __name__ == "__main__":
