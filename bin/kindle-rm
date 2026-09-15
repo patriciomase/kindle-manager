@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Shim: kindle-rm <args>  ==  kindle rm <args>
+set -euo pipefail
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/kindle" rm "$@"

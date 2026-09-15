@@ -1,0 +1,10 @@
+# Calibre for boxes that do not have it installed natively.
+# Only built on demand -- if `ebook-convert` is on PATH the toolkit uses that.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends calibre-bin calibre \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+ENTRYPOINT ["ebook-convert"]

@@ -1,0 +1,10 @@
+# Article extraction. Small: just Python + trafilatura, no Calibre here.
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir "trafilatura==1.12.2"
+
+COPY fetch_article.py /usr/local/bin/fetch-article
+RUN chmod +x /usr/local/bin/fetch-article
+
+WORKDIR /work
+ENTRYPOINT ["python", "/usr/local/bin/fetch-article"]

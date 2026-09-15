@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kindle inbox</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #fffdf9; --ink: #1c1b19; --muted: #6f6a62;
+    --line: #e2ded6; --accent: #7a5c2e; --ok: #3f7a4a; --err: #a3402f;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16151a; --panel: #1e1d23; --ink: #eceaf0; --muted: #9b95a3;
+      --line: #302e38; --accent: #c8a15e; --ok: #6fbf7f; --err: #e08272;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 1.5rem 1rem 4rem;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.1rem; letter-spacing: .02em; margin: 0 0 .25rem; font-weight: 600; }
+  .sub { color: var(--muted); font-size: .85rem; margin: 0 0 1.5rem; }
+  form { display: flex; gap: .5rem; margin-bottom: 1rem; }
+  input[type=url] {
+    flex: 1; min-width: 0; padding: .7rem .8rem; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    font: inherit;
+  }
+  input[type=url]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    padding: .7rem 1.1rem; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent); color: var(--panel); font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  button.ghost {
+    background: none; color: var(--muted); border-color: var(--line);
+    font-weight: 400; padding: .2rem .5rem; font-size: .8rem;
+  }
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: .9rem 1rem; margin-bottom: 1rem;
+  }
+  h2 {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); margin: 0 0 .6rem; font-weight: 600;
+  }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: flex; align-items: baseline; gap: .6rem;
+    padding: .4rem 0; border-top: 1px solid var(--line);
+  }
+  li:first-child { border-top: 0; }
+  .title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--muted); font-size: .85rem; font-style: italic; }
+  .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--ok); }
+  .status { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+  .status .hint { color: var(--muted); font-size: .8rem; }
+  .job .meta.error { color: var(--err); }
+  .job .meta.working { color: var(--accent); }
+  code {
+    display: block; overflow-x: auto; white-space: pre; padding: .5rem .6rem;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    font: .72rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted);
+  }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>kindle inbox</h1>
+  <p class="sub">Paste a link. It is fetched, converted to AZW3 and delivered the next time the Kindle is plugged in.</p>
+
+  <form id="add">
+    <input type="url" id="url" placeholder="https://… article, or a Gutenberg link" required autocomplete="off">
+    <button type="submit">Send</button>
+  </form>
+
+  <section>
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span id="kindle">checking…</span>
+    </div>
+    <div class="hint" id="hint"></div>
+  </section>
+
+  <section>
+    <h2>Queue <span id="qcount" class="meta"></span></h2>
+    <ul id="queue"><li class="empty">nothing waiting</li></ul>
+  </section>
+
+  <section id="jobs-box" hidden>
+    <h2>In progress</h2>
+    <ul id="jobs"></ul>
+  </section>
+
+  <section>
+    <h2>Delivered</h2>
+    <ul id="sent"><li class="empty">nothing yet</li></ul>
+  </section>
+
+  <section>
+    <h2>Bookmarklet</h2>
+    <p class="sub" style="margin:0 0 .5rem">Drag this into your bookmarks bar, then click it on any article.</p>
+    <p><a id="bm" href="#">📖 Send to Kindle</a></p>
+    <code id="bmsrc"></code>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function bookmarklet() {
+  const base = location.origin;
+  return "javascript:void(window.open('" + base +
+    "/add?u='+encodeURIComponent(location.href),'_blank','width=380,height=200'))";
+}
+$("bm").href = bookmarklet();
+$("bmsrc").textContent = bookmarklet();
+
+$("add").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const url = $("url").value.trim();
+  if (!url) return;
+  $("url").value = "";
+  await fetch("/api/add", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  refresh();
+});
+
+function li(title, meta, extraClass, onRemove) {
+  const el = document.createElement("li");
+  if (extraClass) el.className = extraClass;
+  const t = document.createElement("span");
+  t.className = "title";
+  t.textContent = title;
+  el.append(t);
+  if (meta) {
+    const m = document.createElement("span");
+    m.className = "meta" + (extraClass === "job" ? " " + arguments[4] : "");
+    m.textContent = meta;
+    el.append(m);
+  }
+  if (onRemove) {
+    const b = document.createElement("button");
+    b.className = "ghost";
+    b.textContent = "remove";
+    b.onclick = onRemove;
+    el.append(b);
+  }
+  return el;
+}
+
+function fill(node, items, emptyText) {
+  node.replaceChildren();
+  if (!items.length) {
+    const e = document.createElement("li");
+    e.className = "empty";
+    e.textContent = emptyText;
+    node.append(e);
+    return;
+  }
+  items.forEach((n) => node.append(n));
+}
+
+async function refresh() {
+  let s;
+  try {
+    s = await (await fetch("/api/state")).json();
+  } catch {
+    $("kindle").textContent = "inbox unreachable";
+    return;
+  }
+
+  $("dot").className = "dot" + (s.connected ? " on" : "");
+  $("kindle").textContent = s.connected ? "Kindle connected — " + s.kindle : "Kindle not connected";
+  $("hint").textContent = s.connected
+    ? "queue flushes automatically; unplug to let it index"
+    : "plug it in and unlock the screen to auto-deliver";
+
+  $("qcount").textContent = s.queue.length ? s.queue.length : "";
+  fill($("queue"), s.queue.map((b) =>
+    li(b.title, b.human_size, null, async () => {
+      await fetch("/api/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: b.id }),
+      });
+      refresh();
+    })), "nothing waiting");
+
+  const active = s.jobs.filter((j) => j.state === "pending" || j.state === "working" || j.state === "error");
+  $("jobs-box").hidden = active.length === 0;
+  fill($("jobs"), active.map((j) =>
+    li(j.title, j.detail, "job", null, j.state === "error" ? "error" : "working")), "");
+
+  fill($("sent"), s.sent.map((b) => li(b.title, b.human_size)), "nothing yet");
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

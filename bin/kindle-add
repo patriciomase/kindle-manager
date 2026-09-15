@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Shim: kindle-add <args>  ==  kindle add <args>
+set -euo pipefail
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/kindle" add "$@"

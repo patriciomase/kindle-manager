@@ -78,15 +78,39 @@ Free "quick reads" come from **Project Gutenberg** (public domain = classics). P
 `https://www.gutenberg.org/cache/epub/<ID>/pg<ID>-images.epub`
 (e.g. Chess Fundamentals = ID `33870`).
 
-## Roadmap (what to build)
+## How it is built (implemented 2026-09-15)
 
-Turn the above into scripts so the user doesn't ask Claude each time:
-- [ ] `kindle-add <file|gutenberg-id|url>` — fetch (if needed) → convert to AZW3 → push → sync.
-- [ ] `kindle-ls` — list real books (handles `.azw`/`.kfx`/`.sdr`), excluding dictionaries/system.
-- [ ] `kindle-rm <pattern>` — remove a book + its `.sdr` sidecar safely.
-- [ ] `kindle-clippings` — export `My Clippings.txt` into per-book highlight files.
-- [ ] `kindle-eject` — resolve device + unmount.
-- [ ] Mount auto-detection + a friendly "no Kindle connected / it's in charge-only mode" message.
+Standard-library Python package + thin bash shims. No pip installs on the host:
+the two things that need dependencies run in Docker images built on demand.
+
+```
+bin/kindle            single entry point; bin/kindle-{add,ls,rm,clippings,eject,flush,inboxd} are shims
+kindlemgr/device.py   resolve the mount by LABEL (never hardcode sdc); KINDLE_DIR overrides for tests
+kindlemgr/library.py  listing that understands both storage eras (.azw3 top level AND .kfx inside .sdr)
+kindlemgr/clippings.py  My Clippings.txt -> one markdown file per book (EN + ES metadata lines)
+kindlemgr/queue.py    the spool in ~/.local/share/kindle-manager -- books wait here while unplugged
+kindlemgr/convert.py  source -> AZW3; native ebook-convert if present, else the Calibre image
+kindlemgr/server.py   the inbox: paste a URL, background worker, auto-flush watcher
+docker/               Dockerfile.fetch (trafilatura) and Dockerfile.calibre
+```
+
+**The queue is the core idea.** Adding never requires the device: anything is
+converted immediately and parked, then a watcher polls every 5 s and flushes it
+the moment the Kindle mounts. `kindle-inboxd` serves that as a LAN page on port
+8137 with a bookmarklet, so an article found on the phone lands on the Kindle
+by itself.
+
+- [x] `kindle-add <file|gutenberg-id|url|article-url>`
+- [x] `kindle-ls` — handles `.azw`/`.kfx`/`.sdr`, skips dictionaries and KU receipts
+- [x] `kindle-rm <pattern>` — book + sidecar, with confirmation and `--dry-run`
+- [x] `kindle-clippings` — per-book markdown export
+- [x] `kindle-eject` — sync + `udisksctl unmount`
+- [x] Friendly "no Kindle connected / it may be charge-only" message
+- [x] Web inbox + bookmarklet + auto-delivery on connect
+
+Hub box is **the LAN desktop**: it has Calibre natively, it is always on,
+and it runs the inbox as a systemd user service. `tests/test_kindlemgr.py` runs
+anywhere against a fake tree via `KINDLE_DIR` — no hardware.
 
 ## Owner notes
 

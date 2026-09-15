@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Shim: kindle-clippings <args>  ==  kindle clippings <args>
+set -euo pipefail
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/kindle" clippings "$@"

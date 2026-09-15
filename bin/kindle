@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Entry point for the whole toolkit: `kindle <subcommand>`.
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+exec python3 -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from kindlemgr.cli import main; main()' "$here" "$@"

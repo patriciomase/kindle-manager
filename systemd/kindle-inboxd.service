@@ -1,0 +1,13 @@
+[Unit]
+Description=kindle-manager inbox (paste a URL, get a book)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/Desktop/Projects/Personal/kindle-manager/bin/kindle-inboxd
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
