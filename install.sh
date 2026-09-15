@@ -11,7 +11,10 @@ for cmd in "$repo"/bin/*; do
   echo "  linked $(basename "$cmd")"
 done
 
-case ":$PATH:" in
+# Check the login shell's PATH, not this script's: ~/.profile adds ~/.local/bin
+# only when it already exists, and a non-interactive shell may not have sourced it.
+login_path=$(bash -lc 'printf %s "$PATH"' 2>/dev/null || printf %s "$PATH")
+case ":$login_path:" in
   *":$bindir:"*) ;;
   *) echo "! $bindir is not on your PATH — add it to ~/.bashrc" ;;
 esac
