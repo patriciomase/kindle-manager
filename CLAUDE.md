@@ -116,9 +116,10 @@ reads rather than a subprocess. `lsblk` remains as a fallback.
 - [x] Friendly "no Kindle connected / it may be charge-only" message
 - [x] Web inbox + bookmarklet + one-button delivery (auto-delivery opt-in)
 
-Hub box is **the LAN desktop**: it has Calibre natively, it is always on,
-and it runs the inbox as a systemd user service. `tests/test_kindlemgr.py` runs
-anywhere against a fake tree via `KINDLE_DIR` — no hardware.
+The hub is the always-on desktop on the LAN: it has Calibre installed natively
+and runs the inbox as a systemd user service. Laptops use the same commands
+over the Docker path. `tests/test_kindlemgr.py` runs anywhere against a fake
+tree via `KINDLE_DIR` — no hardware.
 
 ## Owner notes
 
