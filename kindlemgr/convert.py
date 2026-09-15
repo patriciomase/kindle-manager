@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+import zipfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCKER_DIR = os.path.join(HERE, "docker")
@@ -26,6 +28,10 @@ CALIBRE_IMAGE = "kindle-manager-calibre"
 CONVERTIBLE = {".epub", ".html", ".htm", ".txt", ".mobi", ".rtf", ".fb2", ".docx", ".azw", ".prc"}
 # Formats that go to the device untouched.
 PASSTHROUGH = {".azw3", ".pdf", ".kfx"}
+# Extensions that mean "this URL is a book to download". Deliberately excludes
+# .html/.htm: a link ending in .html is an article to extract, not a file to
+# grab verbatim -- grabbing it verbatim ships the site's navigation and ads.
+DOWNLOADABLE = (CONVERTIBLE | PASSTHROUGH) - {".html", ".htm"}
 
 # The PW4 is 300 ppi, 1072x1448 -- kindle_pw3 is Calibre's profile for it.
 OUTPUT_PROFILE = "kindle_pw3"
@@ -67,6 +73,40 @@ def safe_filename(title, author=""):
     return (name[:120] or "Untitled") + ".azw3"
 
 
+DC = "{http://purl.org/dc/elements/1.1/}"
+
+
+def epub_metadata(path):
+    """Read (title, author) out of an EPUB's OPF. Returns ("", "") if unreadable.
+
+    Downloads land on disk as pg33870.epub and similar, so the filename makes a
+    terrible title -- the book knows its own name, so ask it.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            container = ET.fromstring(zf.read("META-INF/container.xml"))
+            rootfile = container.find(".//{*}rootfile")
+            opf_path = rootfile.get("full-path") if rootfile is not None else None
+            if not opf_path:
+                return "", ""
+            opf = ET.fromstring(zf.read(opf_path))
+    except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
+        return "", ""
+
+    def text(tag):
+        el = opf.find(f".//{DC}{tag}")
+        return (el.text or "").strip() if el is not None and el.text else ""
+
+    title = text("title")
+    author = text("creator")
+    # Gutenberg writes "Capablanca, Jose Raul" -- flip it back to reading order.
+    if author.count(",") == 1:
+        last, first = (part.strip() for part in author.split(","))
+        if last and first:
+            author = f"{first} {last}"
+    return title, author
+
+
 # --- source classification ---------------------------------------------------
 
 GUTENBERG_EBOOK = re.compile(r"gutenberg\.org/(?:ebooks|cache/epub)/(\d+)")
@@ -91,7 +131,7 @@ def classify(target):
 
     path = urllib.parse.urlparse(target).path
     ext = os.path.splitext(path)[1].lower()
-    if ext in CONVERTIBLE | PASSTHROUGH:
+    if ext in DOWNLOADABLE:
         return "download", target
     return "article", target
 
@@ -191,6 +231,11 @@ def prepare(target, workdir, title=None, author=None, on_event=None):
         src, meta = fetch_article(value, workdir, on_event)
     else:
         src = value
+
+    if os.path.splitext(src)[1].lower() == ".epub" and not (title and author):
+        epub_title, epub_author = epub_metadata(src)
+        title = title or epub_title
+        author = author or epub_author
 
     title = title or meta.get("title") or os.path.splitext(os.path.basename(src))[0]
     author = author or meta.get("author") or ""

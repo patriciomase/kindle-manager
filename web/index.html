@@ -139,7 +139,7 @@ $("add").addEventListener("submit", async (e) => {
   refresh();
 });
 
-function li(title, meta, extraClass, onRemove) {
+function li(title, meta, extraClass, onRemove, metaClass) {
   const el = document.createElement("li");
   if (extraClass) el.className = extraClass;
   const t = document.createElement("span");
@@ -148,7 +148,7 @@ function li(title, meta, extraClass, onRemove) {
   el.append(t);
   if (meta) {
     const m = document.createElement("span");
-    m.className = "meta" + (extraClass === "job" ? " " + arguments[4] : "");
+    m.className = metaClass ? "meta " + metaClass : "meta";
     m.textContent = meta;
     el.append(m);
   }

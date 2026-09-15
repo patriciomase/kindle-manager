@@ -5,6 +5,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -123,6 +124,11 @@ class ConvertTest(unittest.TestCase):
             convert.classify("https://example.com/book.epub")[0], "download")
         self.assertEqual(
             convert.classify("https://example.com/posts/why-zig")[0], "article")
+        # a .html link is an article to extract, not a file to download verbatim
+        self.assertEqual(
+            convert.classify("http://example.com/IncIdeas/BitterLesson.html")[0], "article")
+        self.assertEqual(
+            convert.classify("https://example.com/book.pdf")[0], "download")
         with self.assertRaises(convert.ConvertError):
             convert.classify("not a url or a file")
 
@@ -141,6 +147,47 @@ class ConvertTest(unittest.TestCase):
         self.assertNotRegex(name, r'[\\/:*?"<>|]')
         self.assertTrue(name.endswith(".azw3"))
         self.assertTrue(convert.safe_filename("", "").startswith("Untitled"))
+
+
+CONTAINER_XML = """<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="content.opf"
+    media-type="application/oebps-package+xml"/></rootfiles>
+</container>"""
+
+OPF = """<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Chess Fundamentals</dc:title>
+    <dc:creator>Capablanca, Jose Raul</dc:creator>
+  </metadata>
+</package>"""
+
+
+class EpubMetadataTest(unittest.TestCase):
+    def _epub(self, container=CONTAINER_XML, opf=OPF):
+        fd, path = tempfile.mkstemp(suffix=".epub")
+        os.close(fd)
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("META-INF/container.xml", container)
+            zf.writestr("content.opf", opf)
+        self.addCleanup(os.remove, path)
+        return path
+
+    def test_reads_title_and_author(self):
+        title, author = convert.epub_metadata(self._epub())
+        self.assertEqual(title, "Chess Fundamentals")
+
+    def test_flips_surname_first_authors(self):
+        _title, author = convert.epub_metadata(self._epub())
+        self.assertEqual(author, "Jose Raul Capablanca")
+
+    def test_unreadable_epub_is_not_fatal(self):
+        fd, path = tempfile.mkstemp(suffix=".epub")
+        os.write(fd, b"not a zip")
+        os.close(fd)
+        self.addCleanup(os.remove, path)
+        self.assertEqual(convert.epub_metadata(path), ("", ""))
 
 
 if __name__ == "__main__":
