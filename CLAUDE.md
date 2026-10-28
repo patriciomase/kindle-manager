@@ -115,6 +115,7 @@ reads rather than a subprocess. `lsblk` remains as a fallback.
 - [x] `kindle-eject` — sync + `udisksctl unmount`
 - [x] Friendly "no Kindle connected / it may be charge-only" message
 - [x] Web inbox + bookmarklet + one-button delivery (auto-delivery opt-in)
+- [x] File upload on the inbox (`POST /api/upload`, raw body + `X-Filename`), for EPUBs from Wikisource etc.
 
 The hub is the always-on desktop on the LAN: it has Calibre installed natively
 and runs the inbox as a systemd user service. Laptops use the same commands

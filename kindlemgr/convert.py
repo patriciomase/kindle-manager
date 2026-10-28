@@ -98,7 +98,8 @@ def epub_metadata(path):
         return (el.text or "").strip() if el is not None and el.text else ""
 
     title = text("title")
-    author = text("creator")
+    # Wikisource exports credit the author's wiki page: "Autor:Marco Aurelio".
+    author = re.sub(r"^(?:Autor|Author):", "", text("creator"))
     # Gutenberg writes "Capablanca, Jose Raul" -- flip it back to reading order.
     if author.count(",") == 1:
         last, first = (part.strip() for part in author.split(","))

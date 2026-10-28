@@ -16,6 +16,7 @@ Standard library only -- the heavy dependencies stay inside Docker.
 import json
 import os
 import queue as stdqueue
+import re
 import shutil
 import tempfile
 import threading
@@ -32,6 +33,7 @@ WEB_DIR = os.path.join(HERE, "web")
 AUTOFLUSH = os.environ.get("KINDLE_AUTOFLUSH", "") not in ("", "0", "no", "false")
 AUTOFLUSH_SECONDS = int(os.environ.get("KINDLE_AUTOFLUSH_SECONDS", 30))
 MAX_JOBS = 30
+MAX_UPLOAD = 200 * 1024 * 1024
 
 _jobs = []                     # newest last; each: {id, url, title, state, detail, at}
 _jobs_lock = threading.Lock()
@@ -39,12 +41,14 @@ _work = stdqueue.Queue()
 _job_seq = 0
 
 
-def _add_job(url):
+def _add_job(url, title=None, upload_dir=None):
+    """Queue a conversion. `url` is anything convert.prepare accepts -- for an
+    upload it is the saved file, and `upload_dir` is removed once it is done."""
     global _job_seq
     with _jobs_lock:
         _job_seq += 1
-        job = {"id": _job_seq, "url": url, "title": url, "state": "pending",
-               "detail": "waiting", "at": time.time()}
+        job = {"id": _job_seq, "url": url, "title": title or url, "state": "pending",
+               "detail": "waiting", "at": time.time(), "upload_dir": upload_dir}
         _jobs.append(job)
         del _jobs[:-MAX_JOBS]
     _work.put(job)
@@ -54,6 +58,17 @@ def _add_job(url):
 def _update(job, **fields):
     with _jobs_lock:
         job.update(fields)
+
+
+def _upload_title(job):
+    """An uploaded file a person named ("Meditaciones.epub", unlike the
+    machine-made pg2680.epub) is titled by its name: exports such as
+    Wikisource's put a chapter title like "Índice" in the metadata."""
+    if not job["upload_dir"]:
+        return None
+    stem = os.path.splitext(job["title"])[0].strip()
+    machine_made = re.fullmatch(r"[\w.-]*\d[\w.-]*", stem, re.ASCII)
+    return stem if stem and not machine_made else None
 
 
 def _worker():
@@ -66,8 +81,10 @@ def _worker():
             def progress(msg, job=job):
                 _update(job, detail=msg)
 
-            path, title, author = convert.prepare(job["url"], workdir, on_event=progress)
-            entry = spool.add(path, title, author, source=job["url"])
+            path, title, author = convert.prepare(
+                job["url"], workdir, title=_upload_title(job), on_event=progress)
+            source = f"upload: {job['title']}" if job["upload_dir"] else job["url"]
+            entry = spool.add(path, title, author, source=source)
             _update(job, state="queued", title=title,
                     detail=f"queued · {library.human_size(entry['size'])}")
             if AUTOFLUSH:
@@ -77,6 +94,8 @@ def _worker():
             spool.log(f"ERROR   {job['url']}: {exc}")
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
+            if job["upload_dir"]:
+                shutil.rmtree(job["upload_dir"], ignore_errors=True)
             _work.task_done()
 
 
@@ -188,8 +207,35 @@ class Handler(BaseHTTPRequestHandler):
 
         return self._send(404, "not found")
 
+    def _upload(self):
+        """Raw file body, name in X-Filename (URL-encoded) -- no multipart parsing."""
+        name = os.path.basename(urllib.parse.unquote(self.headers.get("X-Filename") or ""))
+        length = int(self.headers.get("Content-Length") or 0)
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in convert.CONVERTIBLE | convert.PASSTHROUGH:
+            return self._json({"error": f"can't use '{ext or name}' files"}, 400)
+        if not 0 < length <= MAX_UPLOAD:
+            return self._json({"error": "empty or too large"}, 413)
+
+        upload_dir = tempfile.mkdtemp(prefix="kindle-upload-")
+        path = os.path.join(upload_dir, name)
+        remaining = length
+        with open(path, "wb") as fh:
+            while remaining:
+                chunk = self.rfile.read(min(remaining, 1 << 20))
+                if not chunk:
+                    break
+                fh.write(chunk)
+                remaining -= len(chunk)
+        if remaining:
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            return self._json({"error": "upload interrupted"}, 400)
+        return self._json(_add_job(path, title=name, upload_dir=upload_dir))
+
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/upload":
+            return self._upload()
         data = self._body()
 
         if parsed.path == "/api/add":

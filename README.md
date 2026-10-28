@@ -47,10 +47,13 @@ Every command is also a subcommand of `kindle` (`kindle add`, `kindle ls`, …).
 `kindle-inboxd` serves a small page on the LAN (default port **8137**):
 
 - paste a URL into the box, or
+- pick or drop a file on the page (EPUB, MOBI, TXT, PDF…) -- a file you named
+  ("Meditaciones.epub") is titled by its name, since exports like Wikisource's
+  often carry a chapter title ("Índice") in their metadata, or
 - drag the **bookmarklet** it offers into your bookmarks bar and click it on any
   article — including from a phone browser on the same network.
 
-The article is extracted, converted to AZW3 and queued. When you next plug the
+The article (or file) is extracted, converted to AZW3 and queued. When you next plug the
 Kindle in, the **Deliver** button on the page sends everything waiting — or run
 `kindle-flush` from a terminal.
 
@@ -84,7 +87,7 @@ Set `KINDLE_DIR` to a directory that looks like the device and every command
 works against it:
 
 ```bash
-python3 tests/test_kindlemgr.py      # 19 tests, no hardware
+python3 tests/test_kindlemgr.py      # 24 tests, no hardware
 KINDLE_DIR=/path/to/fake kindle-ls
 ```
 

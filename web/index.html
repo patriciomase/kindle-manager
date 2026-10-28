@@ -77,17 +77,27 @@
     font: .72rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted);
   }
   a { color: var(--accent); }
+  .pick { color: var(--accent); text-decoration: underline; cursor: pointer; }
+  #upmsg { display: block; }
+  body.dragging main { outline: 2px dashed var(--accent); outline-offset: .75rem; border-radius: 6px; }
 </style>
 </head>
 <body>
 <main>
   <h1>kindle inbox</h1>
-  <p class="sub">Paste a link. It is fetched, converted to AZW3 and delivered the next time the Kindle is plugged in.</p>
+  <p class="sub">Paste a link or drop a file. It is fetched, converted to AZW3 and delivered the next time the Kindle is plugged in.</p>
 
   <form id="add">
     <input type="url" id="url" placeholder="https://… article, or a Gutenberg link" required autocomplete="off">
     <button type="submit">Send</button>
   </form>
+  <p class="sub" id="upload-row">
+    …or a file (EPUB, MOBI, TXT, PDF…):
+    <label class="pick">choose<input type="file" id="file" multiple hidden
+      accept=".epub,.mobi,.azw,.azw3,.prc,.txt,.html,.htm,.rtf,.fb2,.docx,.pdf,.kfx"></label>
+    — or drop it anywhere on the page.
+    <span id="upmsg"></span>
+  </p>
 
   <section>
     <div class="status">
@@ -143,6 +153,31 @@ $("add").addEventListener("submit", async (e) => {
     body: JSON.stringify({ url }),
   });
   refresh();
+});
+
+async function upload(files) {
+  for (const f of files) {
+    $("upmsg").textContent = `uploading ${f.name}…`;
+    try {
+      const res = await (await fetch("/api/upload", {
+        method: "POST",
+        headers: { "X-Filename": encodeURIComponent(f.name) },
+        body: f,
+      })).json();
+      $("upmsg").textContent = res.error ? `${f.name}: ${res.error}` : "";
+    } catch {
+      $("upmsg").textContent = `${f.name}: upload failed`;
+    }
+    refresh();
+  }
+}
+$("file").addEventListener("change", (e) => { upload([...e.target.files]); e.target.value = ""; });
+addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("dragging"); });
+addEventListener("dragleave", (e) => { if (!e.relatedTarget) document.body.classList.remove("dragging"); });
+addEventListener("drop", (e) => {
+  e.preventDefault();
+  document.body.classList.remove("dragging");
+  if (e.dataTransfer.files.length) upload([...e.dataTransfer.files]);
 });
 
 function li(title, meta, extraClass, onRemove, metaClass) {

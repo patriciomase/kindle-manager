@@ -182,6 +182,11 @@ class EpubMetadataTest(unittest.TestCase):
         _title, author = convert.epub_metadata(self._epub())
         self.assertEqual(author, "Jose Raul Capablanca")
 
+    def test_strips_wikisource_author_prefix(self):
+        opf = OPF.replace("Capablanca, Jose Raul", "Autor:Marco Aurelio")
+        _title, author = convert.epub_metadata(self._epub(opf=opf))
+        self.assertEqual(author, "Marco Aurelio")
+
     def test_unreadable_epub_is_not_fatal(self):
         fd, path = tempfile.mkstemp(suffix=".epub")
         os.write(fd, b"not a zip")
@@ -224,6 +229,61 @@ class MountinfoTest(unittest.TestCase):
         self.addCleanup(os.environ.pop, "KINDLE_DIR", None)
         self.assertIsNone(device.find_mount())
         self.assertFalse(device.is_connected())
+
+
+class UploadTest(unittest.TestCase):
+    """POST /api/upload saves the file and queues a job -- no worker, no Calibre."""
+
+    def setUp(self):
+        from http.server import ThreadingHTTPServer
+        import threading
+        from kindlemgr import server
+        self.server = server
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.addCleanup(self.httpd.server_close)
+        self.addCleanup(self.httpd.shutdown)
+
+    def _post(self, name, body):
+        import json
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.httpd.server_port}/api/upload", data=body,
+            headers={"X-Filename": urllib.parse.quote(name)}, method="POST")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read())
+
+    def test_upload_is_saved_and_queued_under_its_name(self):
+        status, job = self._post("Diálogos - Séneca.epub", b"PK fake epub")
+        self.assertEqual(status, 200)
+        self.addCleanup(shutil.rmtree, job["upload_dir"], True)
+        self.assertEqual(job["title"], "Diálogos - Séneca.epub")
+        with open(job["url"], "rb") as fh:
+            self.assertEqual(fh.read(), b"PK fake epub")
+        self.assertEqual(convert.classify(job["url"])[0], "file")
+
+    def test_path_in_filename_is_stripped(self):
+        status, job = self._post("../../etc/evil.txt", b"hi")
+        self.assertEqual(status, 200)
+        self.addCleanup(shutil.rmtree, job["upload_dir"], True)
+        self.assertEqual(os.path.dirname(job["url"]), job["upload_dir"])
+
+    def test_named_uploads_are_titled_by_filename(self):
+        title = self.server._upload_title
+        self.assertEqual(title({"upload_dir": "/x", "title": "Meditaciones.epub"}), "Meditaciones")
+        self.assertEqual(title({"upload_dir": "/x", "title": "El arte de vivir.epub"}), "El arte de vivir")
+        self.assertIsNone(title({"upload_dir": "/x", "title": "pg2680.epub"}))
+        self.assertIsNone(title({"upload_dir": None, "title": "https://x.org/a b"}))
+
+    def test_rejects_unknown_formats(self):
+        status, res = self._post("script.sh", b"rm -rf /")
+        self.assertEqual(status, 400)
+        self.assertIn("error", res)
 
 
 if __name__ == "__main__":
